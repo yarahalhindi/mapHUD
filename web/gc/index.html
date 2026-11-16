@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ground Control · Mars Walk</title>
+<link rel="stylesheet" href="vendor/leaflet.css">
+<link rel="stylesheet" href="gc.css">
+</head>
+<body>
+<header>
+  <div class="brand"><b>Mars Walk HUD</b><i></i><em>Ground Control</em><i></i><span>Mount Sharp boxwork · Gale Crater</span></div>
+  <div id="utc" class="clock" aria-label="Earth time (UTC)">UTC <b>--:--:--</b></div>
+  <form id="join">
+    <label>Room code <input id="room" placeholder="e.g. K7Q2XM" autocomplete="off" maxlength="10"></label>
+    <button>Connect</button>
+    <button type="button" id="pairOpen" aria-expanded="false" aria-controls="pair">Pair phone</button>
+    <span id="status" class="pill off">not connected</span>
+  </form>
+</header>
+
+<aside id="pair" class="pair" role="dialog" aria-labelledby="pairTitle" hidden>
+  <div class="pair-head"><span id="pairTitle">PAIR PHONE</span><button type="button" id="pairClose">Close</button></div>
+  <p class="pair-help">Scan with the phone camera: the HUD opens in this room.</p>
+  <div id="pairQr" class="pair-qr" role="img"></div>
+  <div id="pairCode" class="pair-code">—</div>
+  <label class="pair-mode">Phone opens in
+    <select id="pairMode"><option value="sim">Sim</option><option value="marswalk">Mars walk</option><option value="field">Camera</option></select>
+  </label>
+  <p id="pairNote" class="pair-note" hidden>This page is on localhost, so the phone can't open this link. Open Ground Control with the laptop's network address.</p>
+  <div class="label sub">MORE LAPTOPS</div>
+  <input id="pairGcLink" readonly aria-label="Ground Control link for this room">
+  <button type="button" id="pairCopy">Copy Ground Control link</button>
+</aside>
+
+<main>
+  <section class="view">
+    <div class="label">ASTRONAUT VIEW <span id="viewMode">—</span></div>
+    <div class="screen">
+      <img id="mjpeg" alt="">
+      <video id="video" autoplay playsinline muted></video>
+      <img id="snap" alt="">
+      <img id="delayed" alt="">
+      <div id="delayLabel"></div>
+      <div id="noVideo">Waiting for the astronaut…<br><small>Press Pair phone and scan the QR, or open the HUD on the phone and type the code shown under COMMS.</small></div>
+    </div>
+  </section>
+
+  <section class="map">
+    <div class="label">MARS MAP <span>HiRISE (MRO) · Curiosity route</span></div>
+    <div class="map-box">
+      <div id="map"></div>
+      <div id="map3d" style="display:none"></div>
+      <button type="button" id="view3d" class="view-toggle" title="Show the map in 3D (real 1 m HiRISE heights)">3D</button>
+    </div>
+  </section>
+
+  <section class="panel readouts">
+    <div id="evaState" class="eva-state">Waiting for telemetry</div>
+    <div class="tile"><b id="o2">—</b><span>Oxygen left <em id="o2left"></em></span></div>
+    <div class="tile"><b id="radRate">—</b><span>Radiation <em id="radDose"></em></span></div>
+    <div class="tile"><b id="temp">—</b><span>Outside temperature</span></div>
+    <div class="tile"><b id="stop">—</b><span>Next stop</span></div>
+    <div class="tile"><b id="dnext">—</b><span>Distance to next stop</span></div>
+    <div class="tile"><b id="home">—</b><span>Time to base <em id="dbase"></em></span></div>
+    <div class="tile"><b id="eva">—</b><span>Time outside</span></div>
+    <div class="tile"><b id="heading">—</b><span>Facing</span></div>
+    <div class="tile"><b id="science">—</b><span>Samples <em id="scienceLast"></em></span></div>
+    <div class="tile ms"><b id="msMargin">—</b><span>MarStep score <em id="msMarginNote"></em></span></div>
+    <div class="tile ms"><b id="msTurn">—</b><span>Turn back in <em id="msTurnNote"></em></span></div>
+    <div class="tile ms"><b id="msReach">—</b><span>Can still go <em id="msReachNote"></em></span></div>
+    <div class="tile ms"><b id="msEffort">—</b><span>Effort <em id="msEffortNote"></em></span></div>
+    <div class="tile ms"><b id="msNext">—</b><span>MarStep at next stop <em id="msNextNote"></em></span></div>
+    <div class="tile ms"><b id="msUsed">—</b><span>Used so far <em id="msUsedNote"></em></span></div>
+  </section>
+
+  <section class="panel controls">
+    <div class="label">MESSAGE TO ASTRONAUT</div>
+    <form id="msgForm"><input id="msg" placeholder="Type a message…" autocomplete="off"><button>Send</button></form>
+    <div class="row">
+      <label class="switch"><input type="checkbox" id="delayOn"> Mars delay</label>
+      <select id="delaySec"><option value="20">20 s (demo)</option><option value="60">1 min</option><option value="186">3.1 min (closest)</option><option value="1335">22 min (farthest)</option></select>
+    </div>
+    <div class="row events">
+      <button data-recall class="danger">Recall to base</button>
+      <button data-demo="toggleDetail" title="Astronaut visor: every panel on ↔ automatic (they show when the astronaut stands still)">Visor: all panels / auto</button>
+      <button id="resetAll" title="Map on Photo, visor on Photo and automatic, no emergency, oxygen refilled, Mars delay and Drive off">Reset to default</button>
+    </div>
+    <details class="tools">
+      <summary>Demo tools · simulate on Mars (happens to the suit at once; Earth's words follow with the delay)</summary>
+      <div class="row events">
+        <button data-event="dust">Dust storm</button>
+        <button data-event="solar">Solar storm</button>
+        <button data-event="o2leak">O₂ leak</button>
+        <button data-demo="steepGround">Steep ground</button>
+      </div>
+      <div class="row events">
+        <button data-demo="nextStop">Jump to next stop</button>
+      </div>
+      <div class="row">
+        <label class="switch" title="Sim mode: W/S walk, A/D sideways, Q/E turn, Shift runs. Ignores the Mars delay."><input type="checkbox" id="driveOn"> Drive the astronaut (WASD)</label>
+        <select id="driveSpeed" title="Walking speed while driving"><option value="1">1× walk</option><option value="3" selected>3× walk</option><option value="5">5× walk</option><option value="8">8× walk</option></select>
+      </div>
+    </details>
+  </section>
+
+  <section class="panel log">
+    <div class="label">ALERT LOG <label class="quiet"><input type="checkbox" id="showLink"> link events</label></div>
+    <ol id="log"></ol>
+  </section>
+</main>
+<div class="credit">Data: NASA/JPL/UArizona HiRISE via Mars Trek · NASA Space Apps 2026 team project</div>
+
+<script src="vendor/leaflet.js"></script>
+<script src="vendor/qrcode.js"></script>
+<script src="../live/vendor/peerjs.min.js"></script>
+<script type="importmap">{ "imports": { "three": "../sim/vendor/three.module.min.js" } }</script>
+<script type="module" src="gc.js"></script>
+<script type="module" src="utc-clock.js"></script>
+</body>
+</html>

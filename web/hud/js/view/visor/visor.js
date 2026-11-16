@@ -1,0 +1,99 @@
+import { drawStopCard } from './card.js';
+import { drawInfoCard } from './info-card.js';
+import { drawCompass } from './compass.js';
+import { drawDangerSigns, drawEdgeGlow, drawPathProfile } from './dangers.js';
+import { drawScanProgress, drawScanTarget } from './science.js';
+import { drawVisorFrame } from './frame.js';
+import { drawGroundGuide } from './ground.js';
+import { drawMarStepBar, drawExceptionChips } from './marstep-bar.js';
+import { drawMiniMap } from './minimap.js';
+import { drawAlerts, drawDirectionArrow, drawFooter, drawMessage, drawNextStop, drawVoice, drawWaiting } from './overlay.js';
+import {
+  PANEL_W_U, drawBiosigns, drawComms, drawIntegrity, drawLayer, drawLocation, drawRadiation,
+} from './panels.js';
+import { ACCENT, NAV, RED } from './style.js';
+
+
+/**
+ * One eye of the helmet visor. Sizes follow the eye's short side; rows follow its height.
+ *
+ * Same drawing for every way of looking at it: hand-held screen or VR box (two eyes), 3D sim or camera.
+ *
+ * Two levels of detail, so the astronaut isn't flooded with numbers (AR rule: show what you decide with,
+ * keep the centre clear for the ground, and show the rest only when it needs a decision):
+ *   focus (default) — compass, where to go (arrow, path, next stop + MarStep there), the MarStep bar, mini-map,
+ *                     and exception lines only when something needs attention. Alerts: one big banner with what to do.
+ *   full            — adds the details (place and time, radiation dose, body, comms, suit integrity, map layer).
+ *                     I key / pad X / Ground Control. Oxygen and power numbers are not shown: MarStep says what they mean.
+ */
+export function drawVisorHud(ctx, w, h, s, images) {
+  const u = Math.min(w, h) / 100;
+  const row = h / 100;
+  const left = Math.max(4 * u, w * 0.05);
+  const right = w - left;
+  const cx = w / 2;
+  // level 0..1: how much of the full suit display shows (standing still or pinned on; see core/detail-auto.js)
+  const level = s.detailLevel ?? (s.detail === 'full' ? 1 : 0);
+  const full = level > 0.5;
+  const navColor = s.mustReturn ? RED : NAV;
+  // the stop card / info card have one fixed slot: the right column (its panels step aside while a card is open)
+  const cardUp = Boolean(s.card || s.info);
+  const slot = { x: right - 28 * u, y: 11 * row, w: 30 * u, h: 78 * row };
+
+  // the guide stays clear of the side panels (full view) or only of the screen edge (focus view, panels are up top)
+  // the floating stop pin (it rides high in the view) always keeps out of the side columns
+  const edge = full ? (PANEL_W_U + 1) * u : 2 * u;
+  const pinEdge = (PANEL_W_U + 1) * u;
+  if (!s.waiting) drawGroundGuide(ctx, w, h, u, s, { minX: left + edge, maxX: right - edge }, { minX: left + pinEdge + 8 * u, maxX: right - pinEdge - 8 * u });
+  if (s.dangers?.show?.signs) drawDangerSigns(ctx, w, h, u, s, { minX: left + edge, maxX: right - edge });
+  drawScanTarget(ctx, w, h, u, s, { minX: left + edge, maxX: right - edge });
+  drawVisorFrame(ctx, w, h, { vr: s.view === 'vr' });
+  if (s.dangers?.show?.glow) drawEdgeGlow(ctx, w, h, u, s);
+
+  drawCompass(ctx, cx, 15 * row, Math.min(w * 0.46, 64 * u), u, s.heading ?? 0, s.targetBearing, navColor);
+
+  // always, in every view: the MarStep bar top left (where the oxygen was), and under it only what needs a decision
+  const compact = w < h;                   // narrow eyes (VR box): a narrower bar, so the centre stays clear
+  const barY = 17 * row;
+  const barH = drawMarStepBar(ctx, left, barY, u, s, { compact });
+  const chipsU = drawExceptionChips(ctx, left, barY + (barH + 2.4) * u, u, s, { compact });
+  if (level > 0) {                         // the details, fading in / out
+    ctx.globalAlpha = level;
+    const locY = barY + (barH + 4.4 + chipsU) * u;
+    drawLocation(ctx, left, locY, u, s);
+    drawRadiation(ctx, left, locY + 22 * u, u, s);
+    drawBiosigns(ctx, left, locY + 29 * u, u, s);
+    if (!cardUp) {
+      drawComms(ctx, right, 14 * row, u, s);
+      drawIntegrity(ctx, right, 55 * row, u, s);
+      drawLayer(ctx, right, 75.5 * row, u, s.layer, { compact: true });
+    }
+  }
+  if (level < 1 && s.layer && !cardUp) {   // focus view: the key for the colours painted on the ground, under the map
+    ctx.globalAlpha = 1 - level;
+    drawLayer(ctx, right, 16 * row + 2 * 11 * u + 6 * u, u, s.layer);
+  }
+  ctx.globalAlpha = 1;
+  // one mini-map, gliding between its walking spot and its spot in the full panels (never two at once)
+  const mix = (a, b) => a + (b - a) * level;
+  const mapR = mix(11 * u, 10.5 * u);
+  if (!cardUp) drawMiniMap(ctx, mix(right - 12 * u, right - 12 * u), mix(16 * row + 11 * u, 37 * row), mapR, u, s);
+
+  if (s.card) drawStopCard(ctx, slot, u, s.card, images.get(s.card.photo), { sample: s.cardSample, vr: s.view === 'vr' });
+  else if (s.info) drawInfoCard(ctx, slot, s.view === 'vr' ? u * 1.3 : u, s.info);
+  if (s.waiting) drawWaiting(ctx, cx, h / 2, u, s.waiting);
+  else drawNextStop(ctx, cx, 74 * row, u, s);
+  const profile = Boolean(s.dangers?.show?.profile && !s.waiting);
+  if (profile) drawPathProfile(ctx, cx, 81.5 * row, u, s);
+  drawScanProgress(ctx, cx, h / 2, u, s);
+  // alerts and messages go on top of everything, including an open stop card
+  const alertH = drawAlerts(ctx, cx, 21 * row, u, s);
+  drawMessage(ctx, cx, 21 * row + (alertH ? alertH + 2.4 : 1.5) * u, u, w, s.message);
+  // always visible: which way to go along the path (under the card when one is open)
+  // the cards sit in the right column, so the arrow and the AI's words never move
+  if (!s.waiting) drawDirectionArrow(ctx, cx, 64 * row, u, s.arrowDeg, navColor);
+  drawVoice(ctx, cx, (profile ? 89.5 : 86) * row, u, w, s);
+  if (s.view !== 'vr' && !s.waiting) drawFooter(ctx, left, 88 * row, u, s);
+}
+
+export { ACCENT };
